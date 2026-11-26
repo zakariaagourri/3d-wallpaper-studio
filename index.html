@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Wallpaper Studio</title>
+<script type="application/json" id="claude-artifacts-manifest">{"permissions": ["full-access"]}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a calm studio tool, the picture does the talking
+   IDEA: a photographer's light box: one big frame, a slim panel of knobs
+   PICTURE: the live 3D scene itself, at the exact shape of your screen
+   COLOUR and TYPE: graphite ground, coral accent; Manrope
+   LAYOUT: preview left, controls right; stacks under 860px */
+:root{color-scheme:light dark;--bg:light-dark(#eceae6,#101014);--panel:light-dark(#ffffff,#18181f);--ink:light-dark(#16161c,#eeeef3);--mute:light-dark(#6b6b78,#9a9aa8);--line:light-dark(#dcdad4,#2a2a35);--acc:#ff6b4a;--acc-ink:#1a0d08}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Manrope,system-ui,sans-serif;overflow-x:clip}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;padding:20px max(2.5vw,14px);max-width:1500px;margin:0 auto;align-items:start}
+header{grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;line-height:1.1;margin:0;font-weight:800;letter-spacing:-.01em}
+header p{margin:0;color:var(--mute);font-size:14px}
+.stage{position:relative;border-radius:14px;overflow:hidden;background:#000;box-shadow:0 20px 50px -20px rgba(0,0,0,.5);aspect-ratio:16/9;touch-action:none;cursor:grab}
+.stage:active{cursor:grabbing}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hint{position:absolute;left:12px;bottom:10px;font-size:13px;color:#fff;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:99px;pointer-events:none;backdrop-filter:blur(6px)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:18px}
+.panel h2{font-size:13px;font-weight:600;color:var(--mute);margin:0 0 8px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sw{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+button,select{font:inherit;color:inherit}
+.opt{min-height:44px;border:1px solid var(--line);background:transparent;border-radius:10px;cursor:pointer;font-weight:600;padding:8px}
+.opt[aria-pressed=true]{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent)}
+.dot{aspect-ratio:1;border-radius:50%;border:2px solid transparent;cursor:pointer;min-height:36px;padding:0}
+.dot[aria-pressed=true]{border-color:var(--ink);outline:2px solid var(--panel);outline-offset:-4px}
+label.row{display:grid;grid-template-columns:70px minmax(0,1fr) 34px;align-items:center;gap:10px;font-size:14px;margin-top:6px}
+input[type=range]{width:100%;accent-color:var(--acc);height:28px}
+select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel);padding:0 10px;font-size:16px}
+.btn{min-height:44px;border-radius:10px;border:1px solid var(--line);background:transparent;padding:0 16px;font-weight:600;cursor:pointer}
+.btn.main{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.btn:disabled{opacity:.5;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid color-mix(in srgb,var(--acc) 60%,transparent);outline-offset:2px}
+.acts{display:grid;gap:8px}
+.status{font-size:14px;color:var(--mute);min-height:1.5em;overflow-wrap:anywhere}
+.seed{font-variant-numeric:tabular-nums;color:var(--mute);font-size:14px;white-space:nowrap}
+.hide{display:none!important}
+@media(max-width:860px){.app{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><h1>3D Wallpaper Studio</h1><p>Make a 3D scene, then save it at your screen's exact size.</p></header>
+  <main>
+    <div class="stage" id="stage"><canvas id="c"></canvas><span class="hint">Drag to turn · scroll to zoom</span></div>
+    <div class="bar">
+      <button class="btn" id="shuffle">Shuffle</button>
+      <button class="btn" id="pause">Pause</button>
+      <span class="seed" id="seedTxt"></span>
+    </div>
+  </main>
+  <aside class="panel">
+    <div><h2>Scene</h2><div class="grid2" id="scenes"></div></div>
+    <div><h2>Colours</h2><div class="sw" id="pals"></div></div>
+    <div><h2>Tweak</h2>
+      <label class="row">Amount<input type="range" id="amount" min="10" max="100" value="55"><span id="amountV"></span></label>
+      <label class="row">Speed<input type="range" id="speed" min="0" max="100" value="35"><span id="speedV"></span></label>
+    </div>
+    <div><h2>Size</h2><select id="size"></select></div>
+    <div class="acts">
+      <button class="btn main hide" id="setWp">Set as wallpaper</button>
+      <button class="btn" id="save">Save PNG</button>
+      <button class="btn hide" id="reveal">Show in folder</button>
+      <button class="btn hide" id="install">Install as desktop app</button>
+      <div class="status" id="status" role="status"></div>
+    </div>
+  </aside>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+{
+const $ = id => document.getElementById(id);
+const status = t => { $('status').textContent = t; };
+
+const SCENES = {crystals:'Crystals', waves:'Waves', planet:'Planet', ribbon:'Ribbon'};
+const PAL = {
+  sunset:{bg:['#2a0f3d','#ff6b4a'],a:'#ff6b4a',b:'#ffb347',c:'#7a3cff'},
+  ocean:{bg:['#020b1a','#0a5d8f'],a:'#00c2ff',b:'#5b5bff',c:'#9ff3ff'},
+  rose:{bg:['#1a0b14','#6a1d42'],a:'#ff4d8d',b:'#ffd1e0',c:'#ff9f6b'},
+  desert:{bg:['#0d2b2a','#c97b3a'],a:'#e8b04a',b:'#c1272d',c:'#f4e3c1'},
+  aurora:{bg:['#050816','#1b1050'],a:'#3cffc8',b:'#b14cff',c:'#4c8dff'},
+  mono:{bg:['#0b0b0f','#34343f'],a:'#ffffff',b:'#9a9aae',c:'#5a5a6a'}
+};
+const dpr = window.devicePixelRatio || 1;
+const SIZES = [
+  ['screen', `My screen (${Math.round(screen.width*dpr)} × ${Math.round(screen.height*dpr)})`, Math.round(screen.width*dpr), Math.round(screen.height*dpr)],
+  ['1080', 'Full HD (1920 × 1080)', 1920, 1080],
+  ['1440', 'QHD (2560 × 1440)', 2560, 1440],
+  ['4k', '4K (3840 × 2160)', 3840, 2160],
+  ['ultra', 'Ultrawide (3440 × 1440)', 3440, 1440],
+  ['mac', 'MacBook (2880 × 1800)', 2880, 1800]
+];
+
+let st = {scene:'crystals', pal:'sunset', amount:55, speed:35, size:'screen', seed:Math.floor(Math.random()*1e6)};
+try { Object.assign(st, JSON.parse(localStorage.getItem('wp3d') || '{}')); } catch(e) {}
+const keep = () => { try { localStorage.setItem('wp3d', JSON.stringify(st)); } catch(e) {} };
+
+// ---------- UI ----------
+$('scenes').innerHTML = Object.entries(SCENES).map(([k,v]) => `<button class="opt" data-k="${k}">${v}</button>`).join('');
+$('pals').innerHTML = Object.entries(PAL).map(([k,p]) => `<button class="dot" data-k="${k}" title="${k}" aria-label="${k} colours" style="background:linear-gradient(135deg,${p.a},${p.c} 60%,${p.bg[0]})"></button>`).join('');
+$('size').innerHTML = SIZES.map(s => `<option value="${s[0]}">${s[1]}</option>`).join('');
+function syncUI(){
+  document.querySelectorAll('#scenes .opt').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === st.scene));
+  document.querySelectorAll('#pals .dot').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === st.pal));
+  $('amount').value = st.amount; $('amountV').textContent = st.amount;
+  $('speed').value = st.speed; $('speedV').textContent = st.speed;
+  $('size').value = st.size;
+  $('seedTxt').textContent = 'Seed ' + st.seed;
+  const s = SIZES.find(x => x[0] === st.size) || SIZES[0];
+  $('stage').style.aspectRatio = s[2] + '/' + s[3];
+}
+
+// ---------- 3D ----------
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(dpr, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 16/9, 0.1, 200);
+let world = new THREE.Group(); scene.add(world);
+let anim = () => {};
+let orbit = {th:0.4, el:0.25, dist:16};
+const DEF = {crystals:{th:0.4,el:0.2,dist:16}, waves:{th:0.6,el:0.32,dist:22}, planet:{th:-0.5,el:0.28,dist:17}, ribbon:{th:0.2,el:0.15,dist:13}};
+
+function rng(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function bgTexture(p){
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  const lin = g.createLinearGradient(0,0,0,512); lin.addColorStop(0,p.bg[0]); lin.addColorStop(1,p.bg[1]);
+  g.fillStyle = lin; g.fillRect(0,0,512,512);
+  const rad = g.createRadialGradient(256,380,10,256,380,360); rad.addColorStop(0,p.a+'55'); rad.addColorStop(1,p.a+'00');
+  g.fillStyle = rad; g.fillRect(0,0,512,512);
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+}
+
+function clear(){
+  world.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) [].concat(o.material).forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+  });
+  scene.remove(world); world = new THREE.Group(); scene.add(world);
+  if (scene.background) scene.background.dispose();
+}
+
+function stars(r, n, col){
+  const pos = new Float32Array(n*3);
+  for (let i=0;i<n;i++){ const u=r()*2-1, th=r()*Math.PI*2, d=60+r()*60, s=Math.sqrt(1-u*u); pos.set([d*s*Math.cos(th), d*u, d*s*Math.sin(th)], i*3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  return new THREE.Points(g, new THREE.PointsMaterial({color:col, size:0.35, sizeAttenuation:true, transparent:true, opacity:0.85}));
+}
+
+function build(){
+  clear();
+  const p = PAL[st.pal], r = rng(st.seed), amt = st.amount/100;
+  const cols = [p.a, p.b, p.c].map(c => new THREE.Color(c));
+  const pick = () => cols[Math.floor(r()*3)];
+  scene.background = bgTexture(p);
+  scene.fog = new THREE.Fog(p.bg[0], 14, 48);
+
+  world.add(new THREE.AmbientLight(0xffffff, 0.35));
+  const l1 = new THREE.DirectionalLight(p.a, 1.3); l1.position.set(6,8,6); world.add(l1);
+  const l2 = new THREE.DirectionalLight(p.c, 1.0); l2.position.set(-7,-2,4); world.add(l2);
+  const l3 = new THREE.PointLight(0xffffff, 0.6, 50); l3.position.set(0,4,10); world.add(l3);
+
+  if (st.scene === 'crystals'){
+    const geos = [new THREE.IcosahedronGeometry(1,0), new THREE.OctahedronGeometry(1,0), new THREE.DodecahedronGeometry(1,0), new THREE.TetrahedronGeometry(1,0)];
+    const n = Math.round(15 + amt*70), items = [];
+    for (let i=0;i<n;i++){
+      const m = new THREE.Mesh(geos[Math.floor(r()*4)], new THREE.MeshStandardMaterial({color:pick(), metalness:0.45, roughness:0.22, flatShading:true}));
+      const rad = 2 + r()*7, th = r()*Math.PI*2, u = r()*2-1, s = Math.sqrt(1-u*u);
+      m.position.set(rad*s*Math.cos(th), rad*u*0.7, rad*s*Math.sin(th));
+      m.scale.setScalar(0.25 + r()*r()*1.6);
+      m.rotation.set(r()*6, r()*6, r()*6);
+      m.userData = {sx:(r()-.5)*1.2, sy:(r()-.5)*1.2, bob:r()*6};
+      world.add(m); items.push(m);
+    }
+    world.add(stars(r, 500, p.b));
+    anim = (t, dt) => items.forEach(m => { m.rotation.x += m.userData.sx*dt; m.rotation.y += m.userData.sy*dt; m.position.y += Math.sin(t+m.userData.bob)*0.002; });
+  }
+
+  if (st.scene === 'waves'){
+    const seg = Math.round(80 + amt*120);
+    const g = new THREE.PlaneGeometry(50, 50, seg, seg); g.rotateX(-Math.PI/2);
+    const solid = new THREE.Mesh(g, new THREE.MeshStandardMaterial({color:p.a, metalness:0.3, roughness:0.35, flatShading:true}));
+    const wire = new THREE.Mesh(g, new THREE.MeshBasicMaterial({color:p.c, wireframe:true, transparent:true, opacity:0.18}));
+    wire.position.y = 0.02;
+    world.add(solid, wire, stars(r, 700, p.b));
+    const pos = g.attributes.position, base = pos.array.slice();
+    const k1 = 0.18 + r()*0.2, k2 = 0.12 + r()*0.2, ph = r()*10;
+    anim = t => {
+      for (let i=0;i<pos.count;i++){
+        const x = base[i*3], z = base[i*3+2];
+        pos.array[i*3+1] = Math.sin(x*k1 + t + ph)*1.1 + Math.cos(z*k2 + t*0.8)*1.2 + Math.sin((x+z)*0.07 + t*0.5)*1.6;
+      }
+      pos.needsUpdate = true; g.computeVertexNormals();
+    };
+  }
+
+  if (st.scene === 'planet'){
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(3.2, 96, 96), new THREE.MeshStandardMaterial({color:p.a, roughness:0.6, metalness:0.1}));
+    const atmo = new THREE.Mesh(new THREE.SphereGeometry(3.55, 64, 64), new THREE.MeshBasicMaterial({color:p.c, transparent:true, opacity:0.12, side:THREE.BackSide, blending:THREE.AdditiveBlending, depthWrite:false}));
+    const rings = new THREE.Group(); rings.rotation.x = -Math.PI/2 + 0.35; rings.rotation.y = 0.15;
+    const nR = Math.round(4 + amt*12);
+    for (let i=0;i<nR;i++){
+      const a = 4.2 + i*(3.4/nR) + r()*0.1;
+      rings.add(new THREE.Mesh(new THREE.RingGeometry(a, a + 0.08 + r()*0.18, 160), new THREE.MeshBasicMaterial({color:pick(), side:THREE.DoubleSide, transparent:true, opacity:0.25 + r()*0.5})));
+    }
+    const moons = [];
+    for (let i=0;i<3;i++){
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.25 + r()*0.4, 32, 32), new THREE.MeshStandardMaterial({color:pick(), roughness:0.7}));
+      m.userData = {d:9 + i*2.5 + r()*2, s:0.2 + r()*0.3, o:r()*6, y:(r()-.5)*3}; world.add(m); moons.push(m);
+    }
+    world.add(planet, atmo, rings, stars(r, Math.round(800 + amt*2200), '#ffffff'));
+    scene.fog = null;
+    anim = (t, dt) => {
+      planet.rotation.y += dt*0.1; rings.rotation.z += dt*0.03;
+      moons.forEach(m => { const a = t*m.userData.s + m.userData.o; m.position.set(Math.cos(a)*m.userData.d, m.userData.y, Math.sin(a)*m.userData.d); });
+    };
+  }
+
+  if (st.scene === 'ribbon'){
+    const pq = [[2,3],[3,4],[2,5],[3,5],[3,7]][Math.floor(r()*5)];
+    const knot = new THREE.Mesh(new THREE.TorusKnotGeometry(2.6, 0.65, 400, 48, pq[0], pq[1]), new THREE.MeshStandardMaterial({color:p.a, metalness:0.55, roughness:0.18}));
+    world.add(knot);
+    const n = Math.round(20 + amt*120), dots = [];
+    for (let i=0;i<n;i++){
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.06 + r()*0.18, 16, 16), new THREE.MeshStandardMaterial({color:pick(), emissive:pick(), emissiveIntensity:0.5}));
+      const d = 4 + r()*6, a = r()*Math.PI*2; s.position.set(Math.cos(a)*d, (r()-.5)*7, Math.sin(a)*d);
+      s.userData = {s:(r()-.5)*0.4}; world.add(s); dots.push(s);
+    }
+    anim = (t, dt) => { knot.rotation.y += dt*0.25; knot.rotation.x = Math.sin(t*0.3)*0.3; dots.forEach(d => { const a = Math.atan2(d.position.z, d.position.x) + d.userData.s*dt, rr = Math.hypot(d.position.x, d.position.z); d.position.x = Math.cos(a)*rr; d.position.z = Math.sin(a)*rr; }); };
+  }
+  syncUI(); keep();
+}
+
+function placeCam(){
+  const {th, el, dist} = orbit;
+  camera.position.set(dist*Math.cos(el)*Math.sin(th), dist*Math.sin(el), dist*Math.cos(el)*Math.cos(th));
+  camera.lookAt(0, st.scene === 'waves' ? -1 : 0, 0);
+}
+function resize(){
+  const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return;
+  renderer.setPixelRatio(Math.min(dpr, 2)); renderer.setSize(w, h, false);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+const ro = new ResizeObserver(resize); ro.observe($('stage'));
+
+let paused = matchMedia('(prefers-reduced-motion: reduce)').matches, t = 0, last = performance.now();
+function loop(now){
+  const dt = Math.min((now - last)/1000, 0.05); last = now;
+  if (!paused){ const k = st.speed/35; t += dt*k; anim(t, dt*k); }
+  placeCam(); renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// drag + zoom
+let drag = null;
+$('stage').addEventListener('pointerdown', e => { drag = {x:e.clientX, y:e.clientY}; $('stage').setPointerCapture(e.pointerId); });
+$('stage').addEventListener('pointermove', e => { if (!drag) return; orbit.th -= (e.clientX-drag.x)*0.006; orbit.el = Math.max(-1.2, Math.min(1.35, orbit.el + (e.clientY-drag.y)*0.006)); drag = {x:e.clientX, y:e.clientY}; });
+$('stage').addEventListener('pointerup', () => { drag = null; });
+$('stage').addEventListener('wheel', e => { e.preventDefault(); orbit.dist = Math.max(5, Math.min(45, orbit.dist * (1 + e.deltaY*0.001))); }, {passive:false});
+
+// controls
+$('scenes').onclick = e => { const k = e.target.dataset.k; if (!k) return; st.scene = k; orbit = {...DEF[k]}; build(); };
+$('pals').onclick = e => { const k = e.target.dataset.k; if (!k) return; st.pal = k; build(); };
+$('amount').oninput = e => { st.amount = +e.target.value; build(); };
+$('speed').oninput = e => { st.speed = +e.target.value; syncUI(); keep(); };
+$('size').onchange = e => { st.size = e.target.value; syncUI(); keep(); };
+$('shuffle').onclick = () => { st.seed = Math.floor(Math.random()*1e6); build(); };
+$('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Play' : 'Pause'; };
+document.addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body){ e.preventDefault(); $('shuffle').click(); } });
+
+// ---------- export ----------
+async function renderPNG(){
+  const s = SIZES.find(x => x[0] === st.size) || SIZES[0];
+  renderer.setPixelRatio(1); renderer.setSize(s[2], s[3], false);
+  camera.aspect = s[2]/s[3]; camera.updateProjectionMatrix(); placeCam();
+  renderer.render(scene, camera);
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  resize();
+  if (!blob) throw new Error('Your graphics card could not render that size. Try a smaller one.');
+  return {blob, name:`wallpaper-${st.scene}-${st.seed}-${s[2]}x${s[3]}-${Date.now().toString(36)}.png`};
+}
+
+let desktop = null, downloads = null, lastPath = null;
+const sep = () => desktop.__win ? '\\' : '/';
+
+async function saveToDisk(){
+  const {blob, name} = await renderPNG();
+  const home = await desktop.os.homedir();
+  const dir = [home, 'Pictures', '3D Wallpapers'].join(sep());
+  await desktop.fs.mkdir(dir, {recursive:true});
+  const path = dir + sep() + name;
+  await desktop.fs.writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+  lastPath = path; $('reveal').classList.remove('hide');
+  return path;
+}
+
+async function setWallpaper(path){
+  const plat = await desktop.os.platform();
+  const tmp = await desktop.os.tmpdir();
+  if (plat === 'win32'){
+    const ps = `$p = '${path.replace(/'/g, "''")}'\r\nAdd-Type @"\r\nusing System.Runtime.InteropServices;\r\npublic class WP { [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d); }\r\n"@\r\n[WP]::SystemParametersInfo(20, 0, $p, 3) | Out-Null\r\n`;
+    const f = tmp + '\\set-wallpaper-3d.ps1';
+    await desktop.fs.writeFile(f, ps, 'utf8');
+    return desktop.childProcess.exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${f}"`, {timeout:20000});
+  }
+  if (plat === 'darwin'){
+    const f = tmp + '/set-wallpaper-3d.scpt';
+    await desktop.fs.writeFile(f, `tell application "System Events" to tell every desktop to set picture to "${path.replace(/"/g, '\\"')}"\n`, 'utf8');
+    return desktop.childProcess.exec(`osascript "${f}"`, {timeout:20000});
+  }
+  const uri = 'file://' + path;
+  return desktop.childProcess.exec(`gsettings set org.gnome.desktop.background picture-uri '${uri}' && gsettings set org.gnome.desktop.background picture-uri-dark '${uri}'`, {timeout:20000});
+}
+
+$('save').onclick = async () => {
+  $('save').disabled = true; status('Rendering…');
+  try {
+    if (desktop?.fs){ const p = await saveToDisk(); status('Saved to ' + p); }
+    else if (downloads){ const {blob, name} = await renderPNG(); await downloads.save({filename:name, data:blob}); status('Saved. Now set it as your background from your Downloads folder.'); }
+    else if (!window.claude){ const {blob, name} = await renderPNG(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); status('Saved to your Downloads folder.'); }
+    else status('Saving isn\'t available in this view. Open it on claude.ai or install the desktop app.');
+  } catch(e){ status(e.code === 'declined' ? 'Save cancelled.' : 'Couldn\'t save: ' + (e.message || e.code)); }
+  $('save').disabled = false;
+};
+$('setWp').onclick = async () => {
+  $('setWp').disabled = true; status('Rendering and setting your wallpaper…');
+  try {
+    const p = await saveToDisk();
+    const res = await setWallpaper(p);
+    status(res && res.code ? 'Saved, but your system refused to change the wallpaper: ' + (res.stderr || 'code ' + res.code).slice(0,200) : 'Done! Your new wallpaper is on. Saved at ' + p);
+  } catch(e){ status(String(e.message).startsWith('EPERM') ? 'The app needs full access to set your wallpaper. Allow it when asked, or use Save PNG.' : 'Couldn\'t set it: ' + e.message); }
+  $('setWp').disabled = false;
+};
+$('reveal').onclick = () => { if (lastPath) desktop.shell.showItemInFolder(lastPath).catch(e => status(e.message)); };
+$('install').onclick = async () => { try { const r = await desktop.install.request(); if (r === 'cancelled') status('Install cancelled.'); } catch(e){ status('Couldn\'t install: ' + e.message); } };
+
+function drawIcon(){
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const lin = g.createLinearGradient(0,0,256,256); lin.addColorStop(0,'#ff6b4a'); lin.addColorStop(1,'#7a3cff');
+  g.fillStyle = lin; g.beginPath(); g.roundRect(8,8,240,240,56); g.fill();
+  const P = (x,y) => [128 + x, 132 + y];
+  const face = (pts, col) => { g.fillStyle = col; g.beginPath(); pts.forEach((p,i) => { const q = P(...p); i ? g.lineTo(...q) : g.moveTo(...q); }); g.closePath(); g.fill(); };
+  face([[0,-70],[62,-36],[0,-2],[-62,-36]], 'rgba(255,255,255,.95)');
+  face([[-62,-36],[0,-2],[0,72],[-62,38]], 'rgba(255,255,255,.55)');
+  face([[62,-36],[0,-2],[0,72],[62,38]], 'rgba(255,255,255,.3)');
+  return c.toDataURL('image/png');
+}
+
+async function initCaps(){
+  if (!window.claude || !claude.use) return;
+  claude.use('downloads').then(d => { downloads = d; }).catch(() => {});
+  try {
+    desktop = await claude.use('desktop');
+    if (desktop?.fs){
+      desktop.__win = (await desktop.os.platform()) === 'win32';
+      $('setWp').classList.remove('hide');
+      desktop.app.dock.setIcon(drawIcon()).catch(() => {});
+    } else if ((await desktop?.install.state()) === 'available'){
+      $('install').classList.remove('hide');
+    }
+  } catch(e) {}
+}
+
+if (!DEF[st.scene]) st.scene = 'crystals';
+if (!PAL[st.pal]) st.pal = 'sunset';
+orbit = {...DEF[st.scene]};
+syncUI(); build(); resize();
+$('pause').textContent = paused ? 'Play' : 'Pause';
+requestAnimationFrame(loop);
+initCaps();
+}
+</script>
+</body>
+</html>
