@@ -2,6 +2,8 @@
 
 Make animated 3D desktop wallpapers in your browser, then save them as a PNG at your screen's exact size (up to 4K and ultrawide).
 
+**[▶ Try the live demo](https://zakariaagourri.github.io/3d-wallpaper-studio/)**
+
 ![Crystals scene](screenshots/app.png)
 
 | Waves | Planet | Ribbon |
